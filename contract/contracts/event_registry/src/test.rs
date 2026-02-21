@@ -1,7 +1,7 @@
 use super::*;
 use crate::error::EventRegistryError;
-use crate::types::EventInfo;
-use soroban_sdk::{testutils::Address as _, Address, Env, String};
+use crate::types::{EventInfo, TicketTier};
+use soroban_sdk::{testutils::Address as _, Address, Env, Map, String};
 
 #[test]
 fn test_initialize() {
@@ -115,6 +115,7 @@ fn test_storage_operations() {
     let payment_address = Address::generate(&env);
     let event_id = String::from_str(&env, "event_123");
 
+    let tiers = Map::new(&env);
     let event_info = EventInfo {
         event_id: event_id.clone(),
         organizer_address: organizer.clone(),
@@ -128,15 +129,13 @@ fn test_storage_operations() {
         ),
         max_supply: 100,
         current_supply: 0,
+        tiers,
     };
 
-    // Test store_event
     client.store_event(&event_info);
 
-    // Test event_exists
     assert!(client.event_exists(&event_id));
 
-    // Test get_event
     let stored_event = client.get_event(&event_id).unwrap();
     assert_eq!(stored_event.event_id, event_id);
     assert_eq!(stored_event.organizer_address, organizer);
@@ -146,7 +145,6 @@ fn test_storage_operations() {
     assert_eq!(stored_event.max_supply, 100);
     assert_eq!(stored_event.current_supply, 0);
 
-    // Test non-existent event
     let fake_id = String::from_str(&env, "fake");
     assert!(!client.event_exists(&fake_id));
     assert!(client.get_event(&fake_id).is_none());
@@ -157,6 +155,8 @@ fn test_organizer_events_list() {
     let env = Env::default();
     let organizer = Address::generate(&env);
     let payment_address = Address::generate(&env);
+
+    let tiers = Map::new(&env);
 
     let event_1 = EventInfo {
         event_id: String::from_str(&env, "e1"),
@@ -171,6 +171,7 @@ fn test_organizer_events_list() {
         ),
         max_supply: 50,
         current_supply: 0,
+        tiers: tiers.clone(),
     };
 
     let event_2 = EventInfo {
@@ -186,6 +187,7 @@ fn test_organizer_events_list() {
         ),
         max_supply: 0,
         current_supply: 0,
+        tiers,
     };
 
     let contract_id = env.register(EventRegistry, ());
@@ -219,13 +221,32 @@ fn test_register_event_success() {
         &env,
         "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
     );
-    client.register_event(&event_id, &organizer, &payment_addr, &metadata_cid, &100);
+
+    let mut tiers = Map::new(&env);
+    tiers.set(
+        String::from_str(&env, "general"),
+        TicketTier {
+            name: String::from_str(&env, "General"),
+            price: 5000000,
+            tier_limit: 100,
+            current_sold: 0,
+        },
+    );
+
+    client.register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &100,
+        &tiers,
+    );
 
     let payment_info = client.get_event_payment_info(&event_id);
     assert_eq!(payment_info.payment_address, payment_addr);
     assert_eq!(payment_info.platform_fee_percent, 500);
+    assert_eq!(payment_info.tiers.len(), 1);
 
-    // Verify supply fields
     let event_info = client.get_event(&event_id).unwrap();
     assert_eq!(event_info.max_supply, 100);
     assert_eq!(event_info.current_supply, 0);
@@ -250,8 +271,15 @@ fn test_register_event_unlimited_supply() {
         &env,
         "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
     );
-    // max_supply = 0 means unlimited
-    client.register_event(&event_id, &organizer, &payment_addr, &metadata_cid, &0);
+    let tiers = Map::new(&env);
+    client.register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &0,
+        &tiers,
+    );
 
     let event_info = client.get_event(&event_id).unwrap();
     assert_eq!(event_info.max_supply, 0);
@@ -277,10 +305,24 @@ fn test_register_duplicate_event_fails() {
         &env,
         "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
     );
-    client.register_event(&event_id, &organizer, &payment_addr, &metadata_cid, &100);
+    let tiers = Map::new(&env);
+    client.register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &100,
+        &tiers,
+    );
 
-    let result =
-        client.try_register_event(&event_id, &organizer, &payment_addr, &metadata_cid, &100);
+    let result = client.try_register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &100,
+        &tiers,
+    );
     assert_eq!(result, Err(Ok(EventRegistryError::EventAlreadyExists)));
 }
 
@@ -303,7 +345,15 @@ fn test_get_event_payment_info() {
         &env,
         "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
     );
-    client.register_event(&event_id, &organizer, &payment_addr, &metadata_cid, &50);
+    let tiers = Map::new(&env);
+    client.register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &50,
+        &tiers,
+    );
 
     let info = client.get_event_payment_info(&event_id);
     assert_eq!(info.payment_address, payment_addr);
@@ -329,7 +379,15 @@ fn test_update_event_status() {
         &env,
         "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
     );
-    client.register_event(&event_id, &organizer, &payment_addr, &metadata_cid, &100);
+    let tiers = Map::new(&env);
+    client.register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &100,
+        &tiers,
+    );
     client.update_event_status(&event_id, &false);
 
     let event_info = client.get_event(&event_id).unwrap();
@@ -354,7 +412,15 @@ fn test_event_inactive_error() {
         &env,
         "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
     );
-    client.register_event(&event_id, &organizer, &payment_addr, &metadata_cid, &100);
+    let tiers = Map::new(&env);
+    client.register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &100,
+        &tiers,
+    );
     client.update_event_status(&event_id, &false);
 
     let result = client.try_get_event_payment_info(&event_id);
@@ -380,7 +446,15 @@ fn test_complete_event_lifecycle() {
         &env,
         "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
     );
-    client.register_event(&event_id, &organizer, &payment_addr, &metadata_cid, &200);
+    let tiers = Map::new(&env);
+    client.register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &200,
+        &tiers,
+    );
 
     let payment_info = client.get_event_payment_info(&event_id);
     assert_eq!(payment_info.payment_address, payment_addr);
@@ -418,7 +492,15 @@ fn test_update_metadata_success() {
         &env,
         "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
     );
-    client.register_event(&event_id, &organizer, &payment_addr, &metadata_cid, &100);
+    let tiers = Map::new(&env);
+    client.register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &100,
+        &tiers,
+    );
 
     let new_metadata_cid = String::from_str(
         &env,
@@ -449,9 +531,16 @@ fn test_update_metadata_invalid_cid() {
         &env,
         "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
     );
-    client.register_event(&event_id, &organizer, &payment_addr, &metadata_cid, &100);
+    let tiers = Map::new(&env);
+    client.register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &100,
+        &tiers,
+    );
 
-    // Test starts with wrong character
     let wrong_char_cid = String::from_str(
         &env,
         "Qafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
@@ -462,7 +551,6 @@ fn test_update_metadata_invalid_cid() {
         Err(Ok(EventRegistryError::InvalidMetadataCid))
     );
 
-    // Test too short
     let short_cid = String::from_str(&env, "bafy");
     let result = client.try_update_metadata(&event_id, &short_cid);
     assert_eq!(result, Err(Ok(EventRegistryError::InvalidMetadataCid)));
@@ -510,20 +598,42 @@ fn test_increment_inventory_success() {
         &env,
         "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
     );
-    client.register_event(&event_id, &organizer, &payment_addr, &metadata_cid, &10);
 
-    // Increment inventory
-    client.increment_inventory(&event_id);
+    let mut tiers = Map::new(&env);
+    let tier_id = String::from_str(&env, "general");
+    tiers.set(
+        tier_id.clone(),
+        TicketTier {
+            name: String::from_str(&env, "General"),
+            price: 5000000,
+            tier_limit: 10,
+            current_sold: 0,
+        },
+    );
+
+    client.register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &10,
+        &tiers,
+    );
+
+    client.increment_inventory(&event_id, &tier_id);
 
     let event_info = client.get_event(&event_id).unwrap();
     assert_eq!(event_info.current_supply, 1);
     assert_eq!(event_info.max_supply, 10);
+    let tier = event_info.tiers.get(tier_id.clone()).unwrap();
+    assert_eq!(tier.current_sold, 1);
 
-    // Increment again
-    client.increment_inventory(&event_id);
+    client.increment_inventory(&event_id, &tier_id);
 
     let event_info = client.get_event(&event_id).unwrap();
     assert_eq!(event_info.current_supply, 2);
+    let tier = event_info.tiers.get(tier_id).unwrap();
+    assert_eq!(tier.current_sold, 2);
 }
 
 #[test]
@@ -548,19 +658,36 @@ fn test_increment_inventory_max_supply_exceeded() {
         &env,
         "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
     );
-    // Only 2 tickets available
-    client.register_event(&event_id, &organizer, &payment_addr, &metadata_cid, &2);
 
-    // First two should succeed
-    client.increment_inventory(&event_id);
-    client.increment_inventory(&event_id);
+    let mut tiers = Map::new(&env);
+    let tier_id = String::from_str(&env, "general");
+    tiers.set(
+        tier_id.clone(),
+        TicketTier {
+            name: String::from_str(&env, "General"),
+            price: 5000000,
+            tier_limit: 2,
+            current_sold: 0,
+        },
+    );
+
+    client.register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &2,
+        &tiers,
+    );
+
+    client.increment_inventory(&event_id, &tier_id);
+    client.increment_inventory(&event_id, &tier_id);
 
     let event_info = client.get_event(&event_id).unwrap();
     assert_eq!(event_info.current_supply, 2);
     assert_eq!(event_info.max_supply, 2);
 
-    // Third should fail
-    let result = client.try_increment_inventory(&event_id);
+    let result = client.try_increment_inventory(&event_id, &tier_id);
     assert_eq!(result, Err(Ok(EventRegistryError::MaxSupplyExceeded)));
 }
 
@@ -586,12 +713,30 @@ fn test_increment_inventory_unlimited_supply() {
         &env,
         "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
     );
-    // max_supply = 0 means unlimited
-    client.register_event(&event_id, &organizer, &payment_addr, &metadata_cid, &0);
 
-    // Should succeed many times without hitting a limit
+    let mut tiers = Map::new(&env);
+    let tier_id = String::from_str(&env, "general");
+    tiers.set(
+        tier_id.clone(),
+        TicketTier {
+            name: String::from_str(&env, "General"),
+            price: 5000000,
+            tier_limit: 1000,
+            current_sold: 0,
+        },
+    );
+
+    client.register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &0,
+        &tiers,
+    );
+
     for _ in 0..10 {
-        client.increment_inventory(&event_id);
+        client.increment_inventory(&event_id, &tier_id);
     }
 
     let event_info = client.get_event(&event_id).unwrap();
@@ -615,7 +760,8 @@ fn test_increment_inventory_event_not_found() {
     client.set_ticket_payment_contract(&ticket_payment);
 
     let fake_event_id = String::from_str(&env, "nonexistent");
-    let result = client.try_increment_inventory(&fake_event_id);
+    let tier_id = String::from_str(&env, "general");
+    let result = client.try_increment_inventory(&fake_event_id, &tier_id);
     assert_eq!(result, Err(Ok(EventRegistryError::EventNotFound)));
 }
 
@@ -641,13 +787,29 @@ fn test_increment_inventory_inactive_event() {
         &env,
         "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
     );
-    client.register_event(&event_id, &organizer, &payment_addr, &metadata_cid, &100);
+    let mut tiers = Map::new(&env);
+    let tier_id = String::from_str(&env, "general");
+    tiers.set(
+        tier_id.clone(),
+        TicketTier {
+            name: String::from_str(&env, "General"),
+            price: 5000000,
+            tier_limit: 100,
+            current_sold: 0,
+        },
+    );
+    client.register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &100,
+        &tiers,
+    );
 
-    // Deactivate the event
     client.update_event_status(&event_id, &false);
 
-    // Try to increment — should fail because event is inactive
-    let result = client.try_increment_inventory(&event_id);
+    let result = client.try_increment_inventory(&event_id, &tier_id);
     assert_eq!(result, Err(Ok(EventRegistryError::EventInactive)));
 }
 
@@ -673,17 +835,259 @@ fn test_increment_inventory_persists_across_reads() {
         &env,
         "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
     );
-    client.register_event(&event_id, &organizer, &payment_addr, &metadata_cid, &50);
+    let mut tiers = Map::new(&env);
+    let tier_id = String::from_str(&env, "general");
+    tiers.set(
+        tier_id.clone(),
+        TicketTier {
+            name: String::from_str(&env, "General"),
+            price: 5000000,
+            tier_limit: 50,
+            current_sold: 0,
+        },
+    );
+    client.register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &50,
+        &tiers,
+    );
 
-    // Increment 5 times
     for _ in 0..5 {
-        client.increment_inventory(&event_id);
+        client.increment_inventory(&event_id, &tier_id);
     }
 
-    // Verify the supply is consistent across multiple reads
     let event_info_1 = client.get_event(&event_id).unwrap();
     let event_info_2 = client.get_event(&event_id).unwrap();
     assert_eq!(event_info_1.current_supply, 5);
     assert_eq!(event_info_2.current_supply, 5);
     assert_eq!(event_info_1.max_supply, 50);
+}
+
+// ==================== Tiered Pricing Tests ====================
+
+#[test]
+fn test_tier_limit_exceeds_max_supply() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(EventRegistry, ());
+    let client = EventRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let organizer = Address::generate(&env);
+    let payment_addr = Address::generate(&env);
+    let platform_wallet = Address::generate(&env);
+
+    client.initialize(&admin, &platform_wallet, &500);
+
+    let event_id = String::from_str(&env, "tier_test");
+    let metadata_cid = String::from_str(
+        &env,
+        "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+    );
+
+    let mut tiers = Map::new(&env);
+    tiers.set(
+        String::from_str(&env, "general"),
+        TicketTier {
+            name: String::from_str(&env, "General"),
+            price: 5000000,
+            tier_limit: 60,
+            current_sold: 0,
+        },
+    );
+    tiers.set(
+        String::from_str(&env, "vip"),
+        TicketTier {
+            name: String::from_str(&env, "VIP"),
+            price: 10000000,
+            tier_limit: 50,
+            current_sold: 0,
+        },
+    );
+
+    let result = client.try_register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &100,
+        &tiers,
+    );
+    assert_eq!(
+        result,
+        Err(Ok(EventRegistryError::TierLimitExceedsMaxSupply))
+    );
+}
+
+#[test]
+fn test_tier_not_found() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(EventRegistry, ());
+    let client = EventRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let organizer = Address::generate(&env);
+    let payment_addr = Address::generate(&env);
+    let platform_wallet = Address::generate(&env);
+    let ticket_payment = Address::generate(&env);
+
+    client.initialize(&admin, &platform_wallet, &500);
+    client.set_ticket_payment_contract(&ticket_payment);
+
+    let event_id = String::from_str(&env, "tier_event");
+    let metadata_cid = String::from_str(
+        &env,
+        "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+    );
+
+    let mut tiers = Map::new(&env);
+    tiers.set(
+        String::from_str(&env, "general"),
+        TicketTier {
+            name: String::from_str(&env, "General"),
+            price: 5000000,
+            tier_limit: 100,
+            current_sold: 0,
+        },
+    );
+
+    client.register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &100,
+        &tiers,
+    );
+
+    let wrong_tier_id = String::from_str(&env, "nonexistent");
+    let result = client.try_increment_inventory(&event_id, &wrong_tier_id);
+    assert_eq!(result, Err(Ok(EventRegistryError::TierNotFound)));
+}
+
+#[test]
+fn test_tier_supply_exceeded() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(EventRegistry, ());
+    let client = EventRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let organizer = Address::generate(&env);
+    let payment_addr = Address::generate(&env);
+    let platform_wallet = Address::generate(&env);
+    let ticket_payment = Address::generate(&env);
+
+    client.initialize(&admin, &platform_wallet, &500);
+    client.set_ticket_payment_contract(&ticket_payment);
+
+    let event_id = String::from_str(&env, "tier_limit_event");
+    let metadata_cid = String::from_str(
+        &env,
+        "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+    );
+
+    let mut tiers = Map::new(&env);
+    let tier_id = String::from_str(&env, "vip");
+    tiers.set(
+        tier_id.clone(),
+        TicketTier {
+            name: String::from_str(&env, "VIP"),
+            price: 10000000,
+            tier_limit: 3,
+            current_sold: 0,
+        },
+    );
+
+    client.register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &100,
+        &tiers,
+    );
+
+    client.increment_inventory(&event_id, &tier_id);
+    client.increment_inventory(&event_id, &tier_id);
+    client.increment_inventory(&event_id, &tier_id);
+
+    let result = client.try_increment_inventory(&event_id, &tier_id);
+    assert_eq!(result, Err(Ok(EventRegistryError::TierSupplyExceeded)));
+}
+
+#[test]
+fn test_multiple_tiers_inventory() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let contract_id = env.register(EventRegistry, ());
+    let client = EventRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let organizer = Address::generate(&env);
+    let payment_addr = Address::generate(&env);
+    let platform_wallet = Address::generate(&env);
+    let ticket_payment = Address::generate(&env);
+
+    client.initialize(&admin, &platform_wallet, &500);
+    client.set_ticket_payment_contract(&ticket_payment);
+
+    let event_id = String::from_str(&env, "multi_tier_event");
+    let metadata_cid = String::from_str(
+        &env,
+        "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+    );
+
+    let mut tiers = Map::new(&env);
+    let general_id = String::from_str(&env, "general");
+    let vip_id = String::from_str(&env, "vip");
+
+    tiers.set(
+        general_id.clone(),
+        TicketTier {
+            name: String::from_str(&env, "General"),
+            price: 5000000,
+            tier_limit: 50,
+            current_sold: 0,
+        },
+    );
+    tiers.set(
+        vip_id.clone(),
+        TicketTier {
+            name: String::from_str(&env, "VIP"),
+            price: 10000000,
+            tier_limit: 20,
+            current_sold: 0,
+        },
+    );
+
+    client.register_event(
+        &event_id,
+        &organizer,
+        &payment_addr,
+        &metadata_cid,
+        &70,
+        &tiers,
+    );
+
+    client.increment_inventory(&event_id, &general_id);
+    client.increment_inventory(&event_id, &general_id);
+    client.increment_inventory(&event_id, &vip_id);
+
+    let event_info = client.get_event(&event_id).unwrap();
+    assert_eq!(event_info.current_supply, 3);
+
+    let general_tier = event_info.tiers.get(general_id).unwrap();
+    assert_eq!(general_tier.current_sold, 2);
+
+    let vip_tier = event_info.tiers.get(vip_id).unwrap();
+    assert_eq!(vip_tier.current_sold, 1);
 }
