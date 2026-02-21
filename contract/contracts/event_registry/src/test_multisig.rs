@@ -7,7 +7,7 @@ fn create_test_env() -> (Env, EventRegistryClient<'static>, Address, Address, Ad
     let env = Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register_contract(None, EventRegistry);
+    let contract_id = env.register(EventRegistry, ());
     let client = EventRegistryClient::new(&env, &contract_id);
 
     let admin1 = Address::generate(&env);
