@@ -1,13 +1,13 @@
 #![cfg(test)]
 
 use crate::{EventRegistry, EventRegistryClient};
-use soroban_sdk::{testutils::Address as _, Address, Env, String, Vec};
+use soroban_sdk::{testutils::Address as _, Address, Env};
 
 fn create_test_env() -> (Env, EventRegistryClient<'static>, Address, Address, Address) {
     let env = Env::default();
     env.mock_all_auths();
 
-    let contract_id = env.register_contract(None, EventRegistry);
+    let contract_id = env.register(EventRegistry, ());
     let client = EventRegistryClient::new(&env, &contract_id);
 
     let admin1 = Address::generate(&env);
