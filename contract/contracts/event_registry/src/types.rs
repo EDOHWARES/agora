@@ -1,4 +1,20 @@
-use soroban_sdk::{contracttype, Address, String, Vec};
+use soroban_sdk::{contracttype, Address, Map, String};
+
+/// Represents a ticket tier with its own pricing and supply
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TicketTier {
+    /// Name of the tier (e.g., "General", "VIP", "Reserved")
+    pub name: String,
+    /// Price for this tier in stroops
+    pub price: i128,
+    /// Maximum tickets available for this tier
+    pub tier_limit: i128,
+    /// Current number of tickets sold for this tier
+    pub current_sold: i128,
+    /// Indicates whether tickets in this tier can be refunded by the buyer
+    pub is_refundable: bool,
+}
 
 /// Represents information about an event in the registry.
 #[contracttype]
@@ -22,6 +38,8 @@ pub struct EventInfo {
     pub max_supply: i128,
     /// Current number of tickets that have been successfully purchased
     pub current_supply: i128,
+    /// Map of tier_id to TicketTier for multi-tiered pricing
+    pub tiers: Map<String, TicketTier>,
 }
 
 /// Payment information for an event
@@ -32,6 +50,8 @@ pub struct PaymentInfo {
     pub payment_address: Address,
     /// The percentage fee taken by the platform
     pub platform_fee_percent: u32,
+    /// Map of tier_id to TicketTier for multi-tiered pricing
+    pub tiers: Map<String, TicketTier>,
 }
 
 /// Multi-signature configuration for admin operations

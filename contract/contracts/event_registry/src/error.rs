@@ -16,6 +16,10 @@ pub enum EventRegistryError {
     MaxSupplyExceeded = 10,
     SupplyOverflow = 11,
     UnauthorizedCaller = 12,
+    TierLimitExceedsMaxSupply = 13,
+    TierNotFound = 14,
+    TierSupplyExceeded = 15,
+    SupplyUnderflow = 16,
 }
 
 impl core::fmt::Display for EventRegistryError {
@@ -42,6 +46,18 @@ impl core::fmt::Display for EventRegistryError {
             }
             EventRegistryError::UnauthorizedCaller => {
                 write!(f, "Caller is not the authorized TicketPayment contract")
+            }
+            EventRegistryError::TierLimitExceedsMaxSupply => {
+                write!(f, "Sum of tier limits exceeds event max supply")
+            }
+            EventRegistryError::TierNotFound => {
+                write!(f, "Ticket tier not found")
+            }
+            EventRegistryError::TierSupplyExceeded => {
+                write!(f, "Tier has reached its maximum supply")
+            }
+            EventRegistryError::SupplyUnderflow => {
+                write!(f, "Supply counter underflow")
             }
         }
     }

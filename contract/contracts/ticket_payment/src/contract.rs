@@ -25,9 +25,44 @@ pub mod event_registry {
         pub platform_fee_percent: u32,
     }
 
+    #[soroban_sdk::contracttype]
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct EventInventory {
+        pub current_supply: i128,
+        pub max_supply: i128,
+    }
+
     #[contractclient(name = "Client")]
     pub trait EventRegistryInterface {
         fn get_event_payment_info(env: Env, event_id: String) -> PaymentInfo;
+        fn get_event(env: Env, event_id: String) -> Option<EventInfo>;
+        fn increment_inventory(env: Env, event_id: String, tier_id: String);
+        fn decrement_inventory(env: Env, event_id: String, tier_id: String);
+    }
+
+    #[soroban_sdk::contracttype]
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct TicketTier {
+        pub name: String,
+        pub price: i128,
+        pub tier_limit: i128,
+        pub current_sold: i128,
+        pub is_refundable: bool,
+    }
+
+    #[soroban_sdk::contracttype]
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct EventInfo {
+        pub event_id: String,
+        pub organizer_address: Address,
+        pub payment_address: Address,
+        pub platform_fee_percent: u32,
+        pub is_active: bool,
+        pub created_at: u64,
+        pub metadata_cid: String,
+        pub max_supply: i128,
+        pub current_supply: i128,
+        pub tiers: soroban_sdk::Map<String, TicketTier>,
     }
 }
 
@@ -135,27 +170,27 @@ impl TicketPaymentContract {
             return Err(TicketPaymentError::TokenNotWhitelisted);
         }
 
-        // 1. Query Event Registry for payment info and platform fee
+        // 1. Query Event Registry for event info and check inventory
         let event_registry_addr = get_event_registry(&env);
         let registry_client = event_registry::Client::new(&env, &event_registry_addr);
 
-        let payment_info = match registry_client.try_get_event_payment_info(&event_id) {
-            Ok(Ok(info)) => info,
-            Err(Ok(e)) => {
-                // Determine which error was thrown
-                if e.is_type(soroban_sdk::xdr::ScErrorType::Contract) && e.get_code() == 2 {
-                    return Err(TicketPaymentError::EventNotFound);
-                } else if e.is_type(soroban_sdk::xdr::ScErrorType::Contract) && e.get_code() == 6 {
-                    return Err(TicketPaymentError::EventInactive);
-                }
-                // Fallback for unexpected contract errors
-                return Err(TicketPaymentError::EventNotFound);
-            }
+        let event_info = match registry_client.try_get_event(&event_id) {
+            Ok(Ok(Some(info))) => info,
+            Ok(Ok(None)) => return Err(TicketPaymentError::EventNotFound),
             _ => return Err(TicketPaymentError::EventNotFound),
         };
 
+        if !event_info.is_active {
+            return Err(TicketPaymentError::EventInactive);
+        }
+
+        // Check if tickets are available (max_supply of 0 means unlimited)
+        if event_info.max_supply > 0 && event_info.current_supply >= event_info.max_supply {
+            return Err(TicketPaymentError::MaxSupplyExceeded);
+        }
+
         // 2. Calculate platform fee (platform_fee_percent is in bps, 10000 = 100%)
-        let platform_fee = (amount * payment_info.platform_fee_percent as i128) / 10000;
+        let platform_fee = (amount * event_info.platform_fee_percent as i128) / 10000;
         let organizer_amount = amount - platform_fee;
 
         // 3. Transfer tokens from buyer (splitting payment)
@@ -171,12 +206,15 @@ impl TicketPaymentContract {
         if organizer_amount > 0 {
             token_client.transfer(
                 &buyer_address,
-                &payment_info.payment_address,
+                &event_info.payment_address,
                 &organizer_amount,
             );
         }
 
-        // 4. Create payment record
+        // 4. Increment inventory after successful payment
+        registry_client.increment_inventory(&event_id, &ticket_tier_id);
+
+        // 5. Create payment record
         let payment = Payment {
             payment_id: payment_id.clone(),
             event_id: event_id.clone(),
@@ -193,7 +231,7 @@ impl TicketPaymentContract {
 
         store_payment(&env, payment);
 
-        // 5. Emit payment event
+        // 6. Emit payment event
         env.events().publish(
             (AgoraEvent::PaymentProcessed,),
             PaymentProcessedEvent {
@@ -239,6 +277,62 @@ impl TicketPaymentContract {
                 timestamp: env.ledger().timestamp(),
             },
         );
+    }
+
+    pub fn request_guest_refund(env: Env, payment_id: String) -> Result<(), TicketPaymentError> {
+        if !is_initialized(&env) {
+            panic!("Contract not initialized");
+        }
+
+        let mut payment =
+            get_payment(&env, payment_id.clone()).ok_or(TicketPaymentError::PaymentNotFound)?;
+
+        payment.buyer_address.require_auth();
+
+        if payment.status == PaymentStatus::Refunded || payment.status == PaymentStatus::Failed {
+            return Err(TicketPaymentError::InvalidPaymentStatus);
+        }
+
+        let event_registry_addr = get_event_registry(&env);
+        let registry_client = event_registry::Client::new(&env, &event_registry_addr);
+
+        let event_info = match registry_client.try_get_event(&payment.event_id) {
+            Ok(Ok(Some(info))) => info,
+            _ => return Err(TicketPaymentError::EventNotFound),
+        };
+
+        let tier = event_info
+            .tiers
+            .get(payment.ticket_tier_id.clone())
+            .ok_or(TicketPaymentError::TierNotFound)?;
+
+        // Check if refundable or if EVENT IS CANCELLED (is_active == false)
+        if !tier.is_refundable && event_info.is_active {
+            return Err(TicketPaymentError::TicketNotRefundable);
+        }
+
+        // Return ticket to inventory using the authorized contract interface
+        registry_client.decrement_inventory(&payment.event_id, &payment.ticket_tier_id);
+
+        let old_status = payment.status.clone();
+        payment.status = PaymentStatus::Refunded;
+        payment.confirmed_at = Some(env.ledger().timestamp());
+
+        store_payment(&env, payment);
+
+        // Emit confirmation event
+        env.events().publish(
+            (AgoraEvent::PaymentStatusChanged,),
+            PaymentStatusChangedEvent {
+                payment_id: payment_id.clone(),
+                old_status,
+                new_status: PaymentStatus::Refunded,
+                transaction_hash: String::from_str(&env, "refund"),
+                timestamp: env.ledger().timestamp(),
+            },
+        );
+
+        Ok(())
     }
 
     /// Returns the status and details of a payment.

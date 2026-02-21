@@ -6,8 +6,8 @@ use crate::events::{
     ProposalApprovedEvent, ProposalCreatedEvent, ProposalExecutedEvent, RegistryUpgradedEvent,
     ThresholdUpdatedEvent,
 };
-use crate::types::{EventInfo, MultiSigConfig, PaymentInfo, Proposal, ProposalType};
-use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
+use crate::types::{EventInfo, PaymentInfo, TicketTier};
+use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, Map, String, Vec};
 
 pub mod error;
 pub mod events;
@@ -78,7 +78,7 @@ impl EventRegistry {
         Ok(())
     }
 
-    /// Register a new event with organizer authentication
+    /// Register a new event with organizer authentication and tiered pricing
     ///
     /// # Arguments
     /// * `event_id` - Unique identifier for the event
@@ -86,6 +86,7 @@ impl EventRegistry {
     /// * `payment_address` - The address where payments should be routed
     /// * `metadata_cid` - IPFS CID for event metadata
     /// * `max_supply` - Maximum number of tickets (0 = unlimited)
+    /// * `tiers` - Map of tier_id to TicketTier for multi-tiered pricing
     pub fn register_event(
         env: Env,
         event_id: String,
@@ -93,25 +94,34 @@ impl EventRegistry {
         payment_address: Address,
         metadata_cid: String,
         max_supply: i128,
+        tiers: Map<String, TicketTier>,
     ) -> Result<(), EventRegistryError> {
         if !storage::is_initialized(&env) {
             return Err(EventRegistryError::NotInitialized);
         }
-        // Verify organizer signature
         organizer_address.require_auth();
 
-        // Validate metadata CID
         validate_metadata_cid(&env, &metadata_cid)?;
 
-        // Check if event already exists
         if storage::event_exists(&env, event_id.clone()) {
             return Err(EventRegistryError::EventAlreadyExists);
         }
 
-        // Get current platform fee
+        // Validate tier limits don't exceed max_supply
+        if max_supply > 0 {
+            let mut total_tier_limit: i128 = 0;
+            for tier in tiers.values() {
+                total_tier_limit = total_tier_limit
+                    .checked_add(tier.tier_limit)
+                    .ok_or(EventRegistryError::SupplyOverflow)?;
+            }
+            if total_tier_limit > max_supply {
+                return Err(EventRegistryError::TierLimitExceedsMaxSupply);
+            }
+        }
+
         let platform_fee_percent = storage::get_platform_fee(&env);
 
-        // Create event info with current timestamp
         let event_info = EventInfo {
             event_id: event_id.clone(),
             organizer_address: organizer_address.clone(),
@@ -122,12 +132,11 @@ impl EventRegistry {
             metadata_cid,
             max_supply,
             current_supply: 0,
+            tiers,
         };
 
-        // Store the event
         storage::store_event(&env, event_info);
 
-        // Emit registration event using contract event type
         env.events().publish(
             (AgoraEvent::EventRegistered,),
             EventRegisteredEvent {
@@ -141,7 +150,7 @@ impl EventRegistry {
         Ok(())
     }
 
-    /// Get event payment information
+    /// Get event payment information including tiered pricing
     pub fn get_event_payment_info(
         env: Env,
         event_id: String,
@@ -154,6 +163,7 @@ impl EventRegistry {
                 Ok(PaymentInfo {
                     payment_address: event_info.payment_address,
                     platform_fee_percent: event_info.platform_fee_percent,
+                    tiers: event_info.tiers,
                 })
             }
             None => Err(EventRegistryError::EventNotFound),
@@ -306,51 +316,134 @@ impl EventRegistry {
         storage::get_ticket_payment_contract(&env).ok_or(EventRegistryError::NotInitialized)
     }
 
-    /// Increments the current_supply counter for a given event.
+    /// Increments the current_supply counter for a given event and tier.
     /// This function is restricted to calls from the authorized TicketPayment contract.
     ///
     /// # Arguments
     /// * `event_id` - The event whose inventory to increment.
+    /// * `tier_id` - The tier whose inventory to increment.
     ///
     /// # Errors
     /// * `UnauthorizedCaller` - If the invoker is not the registered TicketPayment contract.
     /// * `EventNotFound` - If no event with the given ID exists.
     /// * `EventInactive` - If the event is not currently active.
+    /// * `TierNotFound` - If the tier does not exist.
+    /// * `TierSupplyExceeded` - If the tier's limit has been reached.
     /// * `MaxSupplyExceeded` - If the event's max supply has been reached (when max_supply > 0).
     /// * `SupplyOverflow` - If incrementing would cause an i128 overflow.
-    pub fn increment_inventory(env: Env, event_id: String) -> Result<(), EventRegistryError> {
-        // Verify the caller is the authorized TicketPayment contract
+    pub fn increment_inventory(
+        env: Env,
+        event_id: String,
+        tier_id: String,
+    ) -> Result<(), EventRegistryError> {
         let ticket_payment_addr =
             storage::get_ticket_payment_contract(&env).ok_or(EventRegistryError::NotInitialized)?;
         ticket_payment_addr.require_auth();
 
-        // Retrieve the event
         let mut event_info =
             storage::get_event(&env, event_id.clone()).ok_or(EventRegistryError::EventNotFound)?;
 
-        // Ensure event is active
         if !event_info.is_active {
             return Err(EventRegistryError::EventInactive);
         }
 
-        // Check supply limits (max_supply of 0 means unlimited)
+        // Check global supply limits
         if event_info.max_supply > 0 && event_info.current_supply >= event_info.max_supply {
             return Err(EventRegistryError::MaxSupplyExceeded);
         }
 
-        // Safely increment the supply counter
+        // Get and update tier
+        let mut tier = event_info
+            .tiers
+            .get(tier_id.clone())
+            .ok_or(EventRegistryError::TierNotFound)?;
+
+        if tier.current_sold >= tier.tier_limit {
+            return Err(EventRegistryError::TierSupplyExceeded);
+        }
+
+        tier.current_sold = tier
+            .current_sold
+            .checked_add(1)
+            .ok_or(EventRegistryError::SupplyOverflow)?;
+
+        event_info.tiers.set(tier_id, tier);
+
         event_info.current_supply = event_info
             .current_supply
             .checked_add(1)
             .ok_or(EventRegistryError::SupplyOverflow)?;
 
-        // Persist updated event info using persistent storage
         storage::store_event(&env, event_info.clone());
 
-        // Emit inventory incremented event
         env.events().publish(
             (AgoraEvent::InventoryIncremented,),
             InventoryIncrementedEvent {
+                event_id,
+                new_supply: event_info.current_supply,
+                max_supply: event_info.max_supply,
+                timestamp: env.ledger().timestamp(),
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Decrements the current_supply counter for a given event and tier.
+    /// This function is restricted to calls from the authorized TicketPayment contract upon refund.
+    ///
+    /// # Arguments
+    /// * `event_id` - The event whose inventory to decrement.
+    /// * `tier_id` - The tier whose inventory to decrement.
+    ///
+    /// # Errors
+    /// * `UnauthorizedCaller` - If the invoker is not the registered TicketPayment contract.
+    /// * `EventNotFound` - If no event with the given ID exists.
+    /// * `TierNotFound` - If the tier does not exist.
+    /// * `SupplyUnderflow` - If decrementing would cause the supply to go below 0.
+    pub fn decrement_inventory(
+        env: Env,
+        event_id: String,
+        tier_id: String,
+    ) -> Result<(), EventRegistryError> {
+        let ticket_payment_addr =
+            storage::get_ticket_payment_contract(&env).ok_or(EventRegistryError::NotInitialized)?;
+        ticket_payment_addr.require_auth();
+
+        let mut event_info =
+            storage::get_event(&env, event_id.clone()).ok_or(EventRegistryError::EventNotFound)?;
+
+        // Get and update tier
+        let mut tier = event_info
+            .tiers
+            .get(tier_id.clone())
+            .ok_or(EventRegistryError::TierNotFound)?;
+
+        if tier.current_sold <= 0 {
+            return Err(EventRegistryError::SupplyUnderflow);
+        }
+
+        tier.current_sold = tier
+            .current_sold
+            .checked_sub(1)
+            .ok_or(EventRegistryError::SupplyUnderflow)?;
+
+        event_info.tiers.set(tier_id, tier);
+
+        if event_info.current_supply <= 0 {
+            return Err(EventRegistryError::SupplyUnderflow);
+        }
+
+        event_info.current_supply = event_info
+            .current_supply
+            .checked_sub(1)
+            .ok_or(EventRegistryError::SupplyUnderflow)?;
+
+        storage::store_event(&env, event_info.clone());
+
+        env.events().publish(
+            (crate::events::AgoraEvent::InventoryDecremented,),
+            crate::events::InventoryDecrementedEvent {
                 event_id,
                 new_supply: event_info.current_supply,
                 max_supply: event_info.max_supply,
