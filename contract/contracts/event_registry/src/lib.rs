@@ -248,7 +248,8 @@ impl EventRegistry {
 
     /// Stores or updates an event (legacy function for backward compatibility).
     pub fn store_event(env: Env, event_info: EventInfo) {
-        // In a real scenario, we would check authorization here.
+        // Require authorization to ensure only the organizer can store/update their event directly
+        event_info.organizer_address.require_auth();
         storage::store_event(&env, event_info);
     }
 

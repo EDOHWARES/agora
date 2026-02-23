@@ -107,6 +107,7 @@ fn test_set_platform_fee_unauthorized() {
 #[test]
 fn test_storage_operations() {
     let env = Env::default();
+    env.mock_all_auths();
     let contract_id = env.register(EventRegistry, ());
     let client = EventRegistryClient::new(&env, &contract_id);
 
@@ -162,6 +163,7 @@ fn test_storage_operations() {
 #[test]
 fn test_organizer_events_list() {
     let env = Env::default();
+    env.mock_all_auths();
     let organizer = Address::generate(&env);
     let payment_address = Address::generate(&env);
 
