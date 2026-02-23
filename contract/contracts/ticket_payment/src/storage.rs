@@ -168,7 +168,10 @@ pub fn update_event_balance(
     platform_fee: i128,
 ) {
     let mut balance = get_event_balance(env, event_id.clone());
-    balance.organizer_amount = balance.organizer_amount.checked_add(organizer_amount).unwrap();
+    balance.organizer_amount = balance
+        .organizer_amount
+        .checked_add(organizer_amount)
+        .unwrap();
     balance.platform_fee = balance.platform_fee.checked_add(platform_fee).unwrap();
     env.storage()
         .persistent()
@@ -263,16 +266,18 @@ pub fn get_total_fees_collected_by_token(env: &Env, token: Address) -> i128 {
 
 pub fn add_to_total_fees_collected_by_token(env: &Env, token: Address, amount: i128) {
     let current = get_total_fees_collected_by_token(env, token.clone());
-    env.storage()
-        .persistent()
-        .set(&DataKey::TotalFeesCollected(token), &current.checked_add(amount).unwrap());
+    env.storage().persistent().set(
+        &DataKey::TotalFeesCollected(token),
+        &current.checked_add(amount).unwrap(),
+    );
 }
 
 pub fn subtract_from_total_fees_collected_by_token(env: &Env, token: Address, amount: i128) {
     let current = get_total_fees_collected_by_token(env, token.clone());
-    env.storage()
-        .persistent()
-        .set(&DataKey::TotalFeesCollected(token), &current.checked_sub(amount).unwrap());
+    env.storage().persistent().set(
+        &DataKey::TotalFeesCollected(token),
+        &current.checked_sub(amount).unwrap(),
+    );
 }
 
 pub fn set_withdrawal_cap(env: &Env, token: Address, amount: i128) {
@@ -333,16 +338,18 @@ pub fn get_active_escrow_by_token(env: &Env, token: Address) -> i128 {
 
 pub fn add_to_active_escrow_by_token(env: &Env, token: Address, amount: i128) {
     let current = get_active_escrow_by_token(env, token.clone());
-    env.storage()
-        .persistent()
-        .set(&DataKey::ActiveEscrowByToken(token), &current.checked_add(amount).unwrap());
+    env.storage().persistent().set(
+        &DataKey::ActiveEscrowByToken(token),
+        &current.checked_add(amount).unwrap(),
+    );
 }
 
 pub fn subtract_from_active_escrow_by_token(env: &Env, token: Address, amount: i128) {
     let current = get_active_escrow_by_token(env, token.clone());
-    env.storage()
-        .persistent()
-        .set(&DataKey::ActiveEscrowByToken(token), &current.checked_sub(amount).unwrap());
+    env.storage().persistent().set(
+        &DataKey::ActiveEscrowByToken(token),
+        &current.checked_sub(amount).unwrap(),
+    );
 }
 
 // ── Discount code registry ────────────────────────────────────────────────────

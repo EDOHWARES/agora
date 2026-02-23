@@ -370,7 +370,11 @@ impl TicketPaymentContract {
 
         // Verify balance after transfer
         let balance_after = token_client.balance(&contract_address);
-        if balance_after.checked_sub(balance_before).ok_or(TicketPaymentError::ArithmeticError)? != effective_total {
+        if balance_after
+            .checked_sub(balance_before)
+            .ok_or(TicketPaymentError::ArithmeticError)?
+            != effective_total
+        {
             return Err(TicketPaymentError::TransferVerificationFailed);
         }
 
@@ -572,7 +576,10 @@ impl TicketPaymentContract {
             0
         };
 
-        let refund_amount = payment.amount.checked_sub(effective_restocking_fee).ok_or(TicketPaymentError::ArithmeticError)?;
+        let refund_amount = payment
+            .amount
+            .checked_sub(effective_restocking_fee)
+            .ok_or(TicketPaymentError::ArithmeticError)?;
 
         // Return ticket to inventory (increments available inventory)
         registry_client.decrement_inventory(&payment.event_id, &payment.ticket_tier_id);
@@ -596,7 +603,10 @@ impl TicketPaymentContract {
         // Guest receives payment.amount - effective_restocking_fee
         // Organizer keeps effective_restocking_fee (adjust from original organizer_amount)
         // Platform fee is refunded (removed from escrow)
-        let org_adjustment = payment.organizer_amount.checked_sub(effective_restocking_fee).ok_or(TicketPaymentError::ArithmeticError)?;
+        let org_adjustment = payment
+            .organizer_amount
+            .checked_sub(effective_restocking_fee)
+            .ok_or(TicketPaymentError::ArithmeticError)?;
         let platform_adjustment = payment.platform_fee;
 
         crate::storage::update_event_balance(
@@ -657,7 +667,10 @@ impl TicketPaymentContract {
         event_info.organizer_address.require_auth();
 
         let balance = get_event_balance(&env, event_id.clone());
-        let total_revenue = balance.organizer_amount.checked_add(balance.total_withdrawn).ok_or(TicketPaymentError::ArithmeticError)?;
+        let total_revenue = balance
+            .organizer_amount
+            .checked_add(balance.total_withdrawn)
+            .ok_or(TicketPaymentError::ArithmeticError)?;
         if total_revenue == 0 {
             return Ok(0);
         }
@@ -703,8 +716,14 @@ impl TicketPaymentContract {
             &env,
             event_id,
             crate::types::EventBalance {
-                organizer_amount: balance.organizer_amount.checked_sub(available_to_withdraw).ok_or(TicketPaymentError::ArithmeticError)?,
-                total_withdrawn: balance.total_withdrawn.checked_add(available_to_withdraw).ok_or(TicketPaymentError::ArithmeticError)?,
+                organizer_amount: balance
+                    .organizer_amount
+                    .checked_sub(available_to_withdraw)
+                    .ok_or(TicketPaymentError::ArithmeticError)?,
+                total_withdrawn: balance
+                    .total_withdrawn
+                    .checked_add(available_to_withdraw)
+                    .ok_or(TicketPaymentError::ArithmeticError)?,
                 platform_fee: balance.platform_fee,
             },
         );
@@ -782,7 +801,11 @@ impl TicketPaymentContract {
             let current_day = env.ledger().timestamp() / 86400;
             let already_withdrawn =
                 get_daily_withdrawn_amount(&env, token_address.clone(), current_day);
-            if already_withdrawn.checked_add(amount).ok_or(TicketPaymentError::ArithmeticError)? > cap {
+            if already_withdrawn
+                .checked_add(amount)
+                .ok_or(TicketPaymentError::ArithmeticError)?
+                > cap
+            {
                 return Err(TicketPaymentError::WithdrawalCapExceeded);
             }
             add_to_daily_withdrawn_amount(&env, token_address.clone(), current_day, amount);
