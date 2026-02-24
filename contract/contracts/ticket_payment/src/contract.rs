@@ -775,7 +775,7 @@ impl TicketPaymentContract {
         // Update status and store arrival timestamp
         payment.status = PaymentStatus::CheckedIn;
         payment.confirmed_at = Some(env.ledger().timestamp());
-        
+
         store_payment(&env, payment.clone());
 
         #[allow(deprecated)]

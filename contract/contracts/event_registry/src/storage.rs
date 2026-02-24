@@ -341,9 +341,10 @@ pub fn get_promo_expiry(env: &Env) -> u64 {
 
 /// Authorizes a scanner for an event.
 pub fn authorize_scanner(env: &Env, event_id: String, scanner: &Address) {
-    env.storage()
-        .persistent()
-        .set(&DataKey::AuthorizedScanner(event_id, scanner.clone()), &true);
+    env.storage().persistent().set(
+        &DataKey::AuthorizedScanner(event_id, scanner.clone()),
+        &true,
+    );
 }
 
 /// Removes authorization for a scanner from an event.

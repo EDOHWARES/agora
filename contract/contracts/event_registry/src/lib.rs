@@ -4,8 +4,8 @@ use crate::events::{
     AgoraEvent, EventCancelledEvent, EventPostponedEvent, EventRegisteredEvent,
     EventStatusUpdatedEvent, EventsSuspendedEvent, FeeUpdatedEvent, GlobalPromoUpdatedEvent,
     InitializationEvent, InventoryIncrementedEvent, MetadataUpdatedEvent,
-    OrganizerBlacklistedEvent, OrganizerRemovedFromBlacklistEvent,
-    RegistryUpgradedEvent, ScannerAuthorizedEvent,
+    OrganizerBlacklistedEvent, OrganizerRemovedFromBlacklistEvent, RegistryUpgradedEvent,
+    ScannerAuthorizedEvent,
 };
 use crate::types::{
     BlacklistAuditEntry, EventInfo, EventRegistrationArgs, EventStatus, MultiSigConfig, PaymentInfo,
