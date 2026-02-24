@@ -25,7 +25,9 @@ pub enum EventRegistryError {
     OrganizerNotBlacklisted = 19,
     InvalidResaleCapBps = 20,
     InvalidPromoBps = 21,
-    InvalidGracePeriodEnd = 22,
+    EventCancelled = 22,
+    EventAlreadyCancelled = 23,
+    InvalidGracePeriodEnd = 24,
 }
 
 impl core::fmt::Display for EventRegistryError {
@@ -80,8 +82,14 @@ impl core::fmt::Display for EventRegistryError {
             EventRegistryError::InvalidPromoBps => {
                 write!(f, "Promo discount must be between 0 and 10000 basis points")
             }
+            EventRegistryError::EventCancelled => {
+                write!(f, "The event has been cancelled")
+            }
+            EventRegistryError::EventAlreadyCancelled => {
+                write!(f, "The event is already cancelled")
+            }
             EventRegistryError::InvalidGracePeriodEnd => {
-                write!(f, "Grace period end must be in the future")
+                write!(f, "Grace period end timestamp must be in the future")
             }
         }
     }

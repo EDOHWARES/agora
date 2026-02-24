@@ -31,6 +31,8 @@ pub enum TicketPaymentError {
     InsufficientFees = 25,
     ResalePriceExceedsCap = 26,
     ContractPaused = 27,
+    EventCancelled = 35,
+    EventDisputed = 36,
 }
 
 impl core::fmt::Display for TicketPaymentError {
@@ -91,6 +93,12 @@ impl core::fmt::Display for TicketPaymentError {
             }
             TicketPaymentError::ContractPaused => {
                 write!(f, "Contract is paused")
+            }
+            TicketPaymentError::EventCancelled => {
+                write!(f, "The event has been cancelled")
+            }
+            TicketPaymentError::EventDisputed => {
+                write!(f, "The event is currently under dispute")
             }
         }
     }
