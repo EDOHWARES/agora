@@ -1,9 +1,8 @@
 #[cfg(test)]
 mod tests {
-    use serde_yaml::Value;
     use std::fs;
 
-    fn load_compose() -> Value {
+    fn load_compose() -> serde_yaml::Value {
         let content = fs::read_to_string("docker-compose.yml")
             .expect("docker-compose.yml should exist in the server directory");
         serde_yaml::from_str(&content).expect("docker-compose.yml should be valid YAML")

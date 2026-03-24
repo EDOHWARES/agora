@@ -1,7 +1,10 @@
 use axum::{routing::get, Router};
 use sqlx::PgPool;
 
-use crate::config::{create_cors_layer, create_security_headers_layer};
+use crate::config::{
+    create_cors_layer, create_security_headers_layer, propagate_request_id_layer,
+    set_request_id_layer,
+};
 use crate::handlers::{
     example_empty_success, example_not_found, example_validation_error,
     health::{health_check, health_check_db, health_check_ready},
@@ -21,6 +24,8 @@ pub fn create_routes(pool: PgPool) -> Router {
         .nest("/api/v1", api_routes)
         .layer(create_security_headers_layer())
         .layer(create_cors_layer())
+        .layer(propagate_request_id_layer())
+        .layer(set_request_id_layer())
 }
 
 #[cfg(test)]
