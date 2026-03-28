@@ -82,6 +82,21 @@ pub fn increment_series_pass_usage(env: &Env, pass_id: String) -> Option<SeriesP
 
 const SHARD_SIZE: u32 = 50;
 
+fn sync_active_event_count(env: &Env, existing: Option<&EventInfo>, updated: &EventInfo) {
+    match existing {
+        Some(previous) if previous.is_active && !updated.is_active => {
+            decrement_global_active_event_count(env);
+        }
+        Some(previous) if !previous.is_active && updated.is_active => {
+            increment_global_active_event_count(env);
+        }
+        None if updated.is_active => {
+            increment_global_active_event_count(env);
+        }
+        _ => {}
+    }
+}
+
 /// Sets the administrator address of the contract (legacy function).
 pub fn set_admin(env: &Env, admin: &Address) {
     env.storage().persistent().set(&DataKey::Admin, admin);
@@ -288,6 +303,9 @@ pub fn remove_from_active_proposals(env: &Env, proposal_id: u64) {
 pub fn store_event(env: &Env, event_info: EventInfo) {
     let event_id = event_info.event_id.clone();
     let organizer = event_info.organizer_address.clone();
+    let existing = get_event(env, event_id.clone());
+
+    sync_active_event_count(env, existing.as_ref(), &event_info);
 
     // Store the event info using persistent storage
     env.storage()
@@ -329,6 +347,10 @@ pub fn store_event(env: &Env, event_info: EventInfo) {
 /// Use this for mutations on already-registered events.
 pub fn update_event(env: &Env, event_info: EventInfo) {
     let event_id = event_info.event_id.clone();
+    let existing = get_event(env, event_id.clone());
+
+    sync_active_event_count(env, existing.as_ref(), &event_info);
+
     env.storage()
         .persistent()
         .set(&DataKey::Event(event_id), &event_info);
@@ -343,6 +365,10 @@ pub fn get_event(env: &Env, event_id: String) -> Option<EventInfo> {
 pub fn remove_event(env: &Env, event_id: String) {
     if let Some(event_info) = get_event(env, event_id.clone()) {
         let organizer = event_info.organizer_address;
+
+        if event_info.is_active {
+            decrement_global_active_event_count(env);
+        }
 
         // Remove from main mapping
         env.storage()
@@ -813,6 +839,30 @@ pub fn increment_global_event_count(env: &Env) {
     env.storage()
         .persistent()
         .set(&DataKey::GlobalEventCount, &(current + 1));
+}
+
+/// Returns the total number of currently active events on the platform.
+pub fn get_global_active_event_count(env: &Env) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::GlobalActiveEventCount)
+        .unwrap_or(0)
+}
+
+/// Increments the global active event counter by one.
+pub fn increment_global_active_event_count(env: &Env) {
+    let current = get_global_active_event_count(env);
+    env.storage()
+        .persistent()
+        .set(&DataKey::GlobalActiveEventCount, &(current + 1));
+}
+
+/// Decrements the global active event counter by one.
+pub fn decrement_global_active_event_count(env: &Env) {
+    let current = get_global_active_event_count(env);
+    env.storage()
+        .persistent()
+        .set(&DataKey::GlobalActiveEventCount, &current.saturating_sub(1));
 }
 
 /// Returns the total number of tickets sold across all events.

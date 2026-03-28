@@ -384,6 +384,66 @@ fn test_get_total_tickets_sold_uses_event_current_supply() {
 }
 
 #[test]
+fn test_get_active_events_count_tracks_status_changes() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register(EventRegistry, ());
+    let client = EventRegistryClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let organizer = Address::generate(&env);
+    let platform_wallet = Address::generate(&env);
+    let usdc_token = Address::generate(&env);
+    client.initialize(&admin, &platform_wallet, &500, &usdc_token);
+
+    let metadata_cid = String::from_str(
+        &env,
+        "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+    );
+    let tiers = Map::new(&env);
+
+    let event_1 = String::from_str(&env, "active_count_1");
+    let event_2 = String::from_str(&env, "active_count_2");
+    let event_3 = String::from_str(&env, "active_count_3");
+
+    for event_id in [event_1.clone(), event_2.clone(), event_3.clone()] {
+        client.register_event(&EventRegistrationArgs {
+            event_id,
+            organizer_address: organizer.clone(),
+            payment_address: test_payment_address(&env),
+            metadata_cid: metadata_cid.clone(),
+            max_supply: 100,
+            milestone_plan: None,
+            tiers: tiers.clone(),
+            refund_deadline: 0,
+            restocking_fee: 0,
+            resale_cap_bps: None,
+            min_sales_target: None,
+            target_deadline: None,
+            banner_cid: None,
+            tags: None,
+        });
+    }
+
+    assert_eq!(client.get_active_events_count(), 3);
+
+    client.update_event_status(&event_1, &false);
+    assert_eq!(client.get_active_events_count(), 2);
+
+    client.cancel_event(&event_2);
+    assert_eq!(client.get_active_events_count(), 1);
+
+    client.update_event_status(&event_1, &true);
+    assert_eq!(client.get_active_events_count(), 2);
+
+    client.update_event_status(&event_3, &false);
+    assert_eq!(client.get_active_events_count(), 1);
+
+    client.archive_event(&event_3);
+    assert_eq!(client.get_active_events_count(), 1);
+}
+
+#[test]
 fn test_organizer_events_list() {
     let env = Env::default();
     env.mock_all_auths();

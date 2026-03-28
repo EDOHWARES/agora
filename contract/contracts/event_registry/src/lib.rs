@@ -512,6 +512,11 @@ impl EventRegistry {
         storage::get_global_event_count(&env)
     }
 
+    /// Returns the total number of events that are currently active.
+    pub fn get_active_events_count(env: Env) -> u32 {
+        storage::get_global_active_event_count(&env)
+    }
+
     /// Returns the total number of tickets sold across all events on the platform.
     pub fn get_global_tickets_sold(env: Env) -> i128 {
         storage::get_global_tickets_sold(&env)

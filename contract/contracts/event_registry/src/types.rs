@@ -358,6 +358,8 @@ pub enum DataKey {
     TokenWhitelist(Address),
     /// Global counter of all events ever registered on the platform
     GlobalEventCount,
+    /// Global counter of currently active events
+    GlobalActiveEventCount,
     /// Global counter of all tickets sold across all events
     GlobalTicketsSold,
 }
