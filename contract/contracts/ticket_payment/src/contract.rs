@@ -2265,7 +2265,7 @@ impl TicketPaymentContract {
 }
 
 fn validate_address(env: &Env, address: &Address) -> Result<(), TicketPaymentError> {
-    if address == &env.current_contract_address() {
+    if address == &env.current_contract_address() || is_zero_address(env, address) {
         return Err(TicketPaymentError::InvalidAddress);
     }
     Ok(())
@@ -2273,19 +2273,18 @@ fn validate_address(env: &Env, address: &Address) -> Result<(), TicketPaymentErr
 
 /// Validates that a transfer recipient is neither the zero address nor the contract itself.
 fn validate_recipient(env: &Env, address: &Address) -> Result<(), TicketPaymentError> {
-    // Reject the contract's own address
-    if address == &env.current_contract_address() {
+    if address == &env.current_contract_address() || is_zero_address(env, address) {
         return Err(TicketPaymentError::InvalidAddress);
     }
-    // Reject the Stellar zero/burn address
+    Ok(())
+}
+
+fn is_zero_address(env: &Env, address: &Address) -> bool {
     let zero = soroban_sdk::String::from_str(
         env,
         "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJXFF",
     );
-    if address.to_string() == zero {
-        return Err(TicketPaymentError::InvalidAddress);
-    }
-    Ok(())
+    address.to_string() == zero
 }
 
 fn fetch_fresh_asset_price(

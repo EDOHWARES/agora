@@ -696,6 +696,26 @@ fn test_initialize_invalid_address() {
 }
 
 #[test]
+fn test_initialize_zero_platform_wallet_rejected() {
+    let env = Env::default();
+    let contract_id = env.register(TicketPaymentContract, ());
+    let client = TicketPaymentContractClient::new(&env, &contract_id);
+
+    let admin = Address::generate(&env);
+    let usdc_id = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    let platform_wallet = Address::from_str(
+        &env,
+        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJXFF",
+    );
+    let event_registry_id = env.register(MockEventRegistry, ());
+
+    let result = client.try_initialize(&admin, &usdc_id, &platform_wallet, &event_registry_id);
+    assert_eq!(result, Err(Ok(TicketPaymentError::InvalidAddress)));
+}
+
+#[test]
 fn test_upgrade_preserves_initialization_addresses_and_emits_event() {
     let env = Env::default();
     env.mock_all_auths();
@@ -6272,17 +6292,22 @@ fn setup_withdrawal_cap_test(
 #[test]
 fn test_day_calculation_same_day_shares_bucket() {
     // Day 1: timestamps 0 and 86399 both map to day 0
-    assert_eq!(0u64 / 86400, 0);
-    assert_eq!(86399u64 / 86400, 0);
+    let start_of_day = 0u64;
+    let end_of_day = 86_399u64;
+    assert_eq!(start_of_day / 86_400, end_of_day / 86_400);
+    assert_eq!(end_of_day / 86_400, 0);
 
     // Day 2: timestamp 86400 maps to day 1
-    assert_eq!(86400u64 / 86400, 1);
-    assert_eq!(172799u64 / 86400, 1);
+    assert_eq!(86_400u64 / 86_400, 1);
+    assert_eq!(172_799u64 / 86_400, 1);
 
     // Arbitrary real-world timestamp (2024-01-01 00:00:00 UTC = 1704067200)
-    let day_a = 1_704_067_200u64 / 86400;
-    let day_b = (1_704_067_200u64 + 86399) / 86400;
-    let day_c = (1_704_067_200u64 + 86400) / 86400;
+    let day_a_timestamp = 1_704_067_200u64;
+    let day_b_timestamp = day_a_timestamp + 86_399;
+    let day_c_timestamp = day_a_timestamp + 86_400;
+    let day_a = day_a_timestamp / 86_400;
+    let day_b = day_b_timestamp / 86_400;
+    let day_c = day_c_timestamp / 86_400;
     assert_eq!(day_a, day_b); // same day
     assert_ne!(day_a, day_c); // next day
 }
