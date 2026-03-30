@@ -1,9 +1,79 @@
+//! # Storage Module
+//!
+//! This module is the single point of contact between the EventRegistry contract
+//! logic and the Soroban persistent ledger. Every read and write to on-chain state
+//! goes through a thin wrapper function defined here, keeping the rest of the codebase
+//! free of raw storage calls.
+//!
+//! ## Storage type
+//!
+//! **All** state in this contract uses env.storage().persistent(). Persistent
+//! storage survives ledger expiry (unlike temporary storage, which is automatically
+//! deleted after a TTL) and is therefore appropriate for long-lived contract data such
+//! as event records, organizer indexes, and governance proposals.
+//!
+//! There is **no** use of env.storage().instance() or env.storage().temporary()
+//! in this module.
+//!
+//! ## Storage keys
+//!
+//! All keys are variants of the DataKey enum (crate::types::DataKey), annotated
+//! with #[contracttype] so Soroban can serialise them as XDR values.
+//!
+//! | Key variant | Value type | Purpose |
+//! |---|---|---|
+//! | Admin | Address | Legacy single-admin address |
+//! | MultiSigConfig | MultiSigConfig | Multi-admin governance config |
+//! | PlatformWallet | Address | Fee-collection wallet |
+//! | PlatformFee | u32 | Global platform fee in basis points |
+//! | Initialized | bool | One-time initialisation guard |
+//! | Event(event_id) | EventInfo | Full event record keyed by event ID |
+//! | OrganizerEvent(addr, event_id) | bool | Membership flag for organizer index |
+//! | OrganizerEventShard(addr, shard) | Vec<String> | Sharded event ID list per organizer |
+//! | OrganizerEventCount(addr) | u32 | Total events registered by an organizer |
+//! | TicketPaymentContract | Address | Authorised TicketPayment contract |
+//! | BlacklistedOrganizer(addr) | bool | Blacklist membership flag |
+//! | BlacklistLog | Vec<BlacklistAuditEntry> | Append-only audit log |
+//! | GlobalPromoBps | u32 | Platform-wide discount rate in basis points |
+//! | PromoExpiry | u64 | Unix timestamp when the promo expires |
+//! | EventReceipt(event_id) | EventReceipt | Minimal receipt for an archived event |
+//! | OrganizerReceipt(addr, event_id) | bool | Membership flag for receipt index |
+//! | OrganizerReceiptShard(addr, shard) | Vec<String> | Sharded receipt ID list per organizer |
+//! | OrganizerReceiptCount(addr) | u32 | Total archived receipts for an organizer |
+//! | ProposalCounter | u64 | Auto-incrementing governance proposal ID |
+//! | Proposal(id) | Proposal | Governance proposal keyed by ID |
+//! | ActiveProposals | Vec<u64> | IDs of proposals not yet executed |
+//! | AuthorizedScanner(event_id, addr) | bool | Scanner authorisation flag per event |
+//! | Series(series_id) | SeriesRegistry | Series grouping of events |
+//! | SeriesPass(pass_id) | SeriesPass | Season pass for a series |
+//! | HolderSeriesPass(addr, series_id) | String | Maps (holder, series) to pass_id |
+//! | SeriesEvent(series_id, event_id) | bool | Fast membership check for series events |
+//! | GuestProfile(addr) | GuestProfile | Per-attendee loyalty profile |
+//! | OrganizerStake(addr) | OrganizerStake | Organizer collateral stake record |
+//! | MinStakeAmount | i128 | Minimum stake required for Verified status |
+//! | StakingToken | Address | Token contract accepted for staking |
+//! | TotalStaked | i128 | Sum of all currently staked tokens |
+//! | StakersList | Vec<Address> | All addresses with an active stake |
+//! | TokenWhitelist(addr) | bool | Payment token whitelist membership flag |
+//! | GlobalEventCount | u32 | Cumulative count of all registered events |
+//! | GlobalTicketsSold | i128 | Cumulative count of all tickets sold |
+//!
+//! ## Sharding strategy
+//!
+//! Per-organizer event and receipt lists are split into fixed-size buckets of
+//! SHARD_SIZE entries each. This prevents any single storage entry from
+//! growing unboundedly and exceeding Soroban per-entry size limits. The shard
+//! index for a new item is count / SHARD_SIZE, where count is the current
+//! total for that organizer.
 use crate::types::{
     BlacklistAuditEntry, DataKey, EventInfo, GuestProfile, MultiSigConfig, OrganizerStake, Proposal,
 };
 use crate::types::{SeriesPass, SeriesRegistry};
 use soroban_sdk::{vec, Address, Env, String, Vec};
-// --- SeriesRegistry Storage ---
+// ── Series Storage ────────────────────────────────────────────────────────────
+/// Persists a SeriesRegistry and indexes every event it contains.
+/// Storage keys: DataKey::Series(series_id) and DataKey::SeriesEvent(series_id, event_id).
+/// Storage type: Persistent
 pub fn store_series(env: &Env, series: &SeriesRegistry) {
     env.storage()
         .persistent()
@@ -17,17 +87,24 @@ pub fn store_series(env: &Env, series: &SeriesRegistry) {
     }
 }
 
+/// Returns the SeriesRegistry for the given series_id, or None.
+/// Storage key: DataKey::Series(series_id). Storage type: Persistent
 pub fn get_series(env: &Env, series_id: String) -> Option<SeriesRegistry> {
     env.storage().persistent().get(&DataKey::Series(series_id))
 }
 
+/// Returns true if event_id is a member of series_id. O(1) lookup via DataKey::SeriesEvent.
+/// Storage type: Persistent
 pub fn series_contains_event(env: &Env, series_id: String, event_id: String) -> bool {
     env.storage()
         .persistent()
         .has(&DataKey::SeriesEvent(series_id, event_id))
 }
 
-// --- SeriesPass Storage ---
+// ── Series Pass Storage ────────────────────────────────────────────────────────
+/// Persists a SeriesPass and writes a reverse-lookup index (holder, series_id) -> pass_id.
+/// Storage keys: DataKey::SeriesPass(pass_id) and DataKey::HolderSeriesPass(holder, series_id).
+/// Storage type: Persistent
 pub fn store_series_pass(env: &Env, pass: &SeriesPass) {
     env.storage()
         .persistent()
@@ -38,6 +115,8 @@ pub fn store_series_pass(env: &Env, pass: &SeriesPass) {
     );
 }
 
+/// Returns the SeriesPass with the given pass_id, or None.
+/// Storage key: DataKey::SeriesPass(pass_id). Storage type: Persistent
 pub fn get_series_pass(env: &Env, pass_id: String) -> Option<SeriesPass> {
     env.storage()
         .persistent()
