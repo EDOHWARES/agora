@@ -142,7 +142,7 @@ export function Navbar() {
                       i={0}
                       href="/home"
                       icon="/icons/home.svg"
-                      text="Home1"
+                      text="Home"
                       isActive={pathname === "/home"}
                       onClose={() => setIsOpen(false)}
                     />
